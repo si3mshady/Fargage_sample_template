@@ -1,0 +1,9 @@
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "frontend-ecs"
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-1xcv23llaoc7z"
+s3_prefix = "frontend-ecs"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"

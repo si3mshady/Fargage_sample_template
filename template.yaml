@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  ecs_deployments
+  SAM Template for ecs_deployments
+
+Resources:
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: sbx-si3mshady-ecs
+
+  EcsTaskDefinition:
+    Type: AWS::ECS::TaskDefinition            
+    Properties:             
+      ExecutionRoleArn:  !Ref EcsExecRole
+      TaskRoleArn: !Ref ContainerTaskRole
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      
+      ContainerDefinitions:
+        - Name: frontend
+          Essential: 'true'
+          Image: "674406573293.dkr.ecr.us-east-1.amazonaws.com/si3mshady:1"
+          Cpu: 256
+          Memory : 512
+          PortMappings: 
+            - ContainerPort: 80              
+              HostPort: 80
+              Protocol: tcp        
+
+      RequiresCompatibilities:
+        - "FARGATE"
+        # - "EC2"                  
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: front-end-svc
+      Cluster: 
+        Ref: EcsCluster
+      TaskDefinition: 
+        Ref: EcsTaskDefinition
+      DesiredCount: 1
+      LaunchType:  FARGATE  #FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - subnet-e94854a4
+          SecurityGroups:
+            - sg-035ace78c00a8e1c5
+    #A role for  Ecs
+  EcsExecRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: EcsExecRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+  # A role for the containers
+  ContainerTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ContainerTaskRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
