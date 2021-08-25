@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  ecs_deployments
+  SAM Template for ecs_deployments
+
+
+Resources:
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: blogsite-ecs-cluster-iac
+
+  BlogSiteALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties: 
+      IpAddressType: ipv4     
+      Name: blogsite-alb   
+      SecurityGroups: 
+        - sg-0b20bff42187aa01e    #allports 
+      Subnets: 
+        - subnet-084ba1bf0b2666568      #us-east-1a
+        - subnet-0650bc46feca2c51f  #us-east-1f
+      Type: application
+
+
+
+  blogApiMongoDBTaskDef:
+    Type: AWS::ECS::TaskDefinition            
+    Properties:             
+      ExecutionRoleArn:  !Ref EcsExecRole
+      TaskRoleArn: !Ref ContainerTaskRole
+      Cpu: 1024
+      Memory: 2048
+      NetworkMode: awsvpc
+      
+      ContainerDefinitions:
+        - Name: blogAPI
+          Essential: 'true'
+          Image: "si3mshady/blogbe-with-healthcheck:2"
+          Cpu: 256
+          Memory : 512
+          PortMappings: 
+            - ContainerPort: 5000             
+              HostPort: 5000
+              Protocol: tcp  
+
+        - Name: mongoDB
+          Essential: 'true'
+          Image: "mongo:latest"
+          Cpu: 256
+          Memory : 512
+          PortMappings: 
+            - ContainerPort: 27017             
+              HostPort: 27017
+              Protocol: tcp                    
+
+      RequiresCompatibilities:
+        - "FARGATE"
+
+  frontEndTaskDefinition:
+    Type: AWS::ECS::TaskDefinition            
+    Properties:             
+      ExecutionRoleArn:  !Ref EcsExecRole
+      TaskRoleArn: !Ref ContainerTaskRole
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      
+      ContainerDefinitions:
+        - Name: frontend
+          Essential: 'true'
+          Image: "si3mshady/blogfe-dev-no-proxy-config:1"
+          Cpu: 256
+          Memory : 512
+          PortMappings: 
+            - ContainerPort: 3000             
+              HostPort: 3000
+              Protocol: tcp        
+
+      RequiresCompatibilities:
+        - "FARGATE"
+                        
+  frontEndService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: front-end-svc
+      LoadBalancers:       
+        - ContainerPort: 3000
+          LoadBalancerName: !Ref BlogSiteALB    
+      
+      Cluster: 
+        Ref: EcsCluster
+      TaskDefinition: !Ref frontEndTaskDefinition
+   
+      LaunchType:  FARGATE  #FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - subnet-084ba1bf0b2666568
+          SecurityGroups:
+            - sg-0b20bff42187aa01e
+
+  blogApindMongoService:
+    Type: AWS::ECS::Service
+    
+    Properties:
+      ServiceName: blogApiAndMongoService
+      LoadBalancers:
+        - ContainerPort: 5000
+          LoadBalancerName: !Ref BlogSiteALB      
+      Cluster: 
+        Ref: EcsCluster
+      TaskDefinition: !Ref blogApiMongoDBTaskDef    
+      LaunchType:  FARGATE  #FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - subnet-084ba1bf0b2666568
+          SecurityGroups:
+            - sg-0b20bff42187aa01e
+
+  EcsExecRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: EcsExecRoleBlogsite
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+  # A role for the containers
+  
+  ContainerTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ContainerTaskRoleBlogsite
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+
+
+            # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/quickref-ecs.html
