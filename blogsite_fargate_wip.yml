@@ -11,18 +11,20 @@ Resources:
     Properties:
       ClusterName: blogsite-ecs-cluster-iac
 
-  BlogSiteALB:
+  BlogALB:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties: 
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '90'
       IpAddressType: ipv4     
-      Name: blogsite-alb   
+      Name: blog-alb   
       SecurityGroups: 
-        - sg-0b20bff42187aa01e    #allports 
+        - sg-0d3c4a1e0483d6cbb  #allports 
       Subnets: 
-        - subnet-084ba1bf0b2666568      #us-east-1a
-        - subnet-0650bc46feca2c51f  #us-east-1f
+        - subnet-0ddf564ecf0eb4382     #us-east-1a  10.0.1.16/28
+        - subnet-08af412d87deaa7c3 #us-east-1f 10.0.0.0/24
       Type: application
-
 
 
   blogApiMongoDBTaskDef:
@@ -83,11 +85,13 @@ Resources:
                         
   frontEndService:
     Type: AWS::ECS::Service
+    DependsOn: FrontEndRule
     Properties:
-      ServiceName: front-end-svc
+      ServiceName: frontsvc
       LoadBalancers:       
         - ContainerPort: 3000
-          LoadBalancerName: !Ref BlogSiteALB    
+          ContainerName: frontend
+          TargetGroupArn: !Ref TGFE
       
       Cluster: 
         Ref: EcsCluster
@@ -98,29 +102,32 @@ Resources:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
           Subnets:
-            - subnet-084ba1bf0b2666568
+            - subnet-0ddf564ecf0eb4382 
           SecurityGroups:
-            - sg-0b20bff42187aa01e
+            - sg-0d3c4a1e0483d6cbb
+
 
   blogApindMongoService:
     Type: AWS::ECS::Service
-    
+    DependsOn: BackendRule
     Properties:
       ServiceName: blogApiAndMongoService
       LoadBalancers:
         - ContainerPort: 5000
-          LoadBalancerName: !Ref BlogSiteALB      
+          ContainerName: blogAPI
+          TargetGroupArn: !Ref TGNM
+
       Cluster: 
         Ref: EcsCluster
-      TaskDefinition: !Ref blogApiMongoDBTaskDef    
+      TaskDefinition: !Ref blogApiMongoDBTaskDef  
       LaunchType:  FARGATE  #FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
           Subnets:
-            - subnet-084ba1bf0b2666568
+            - subnet-0ddf564ecf0eb4382 
           SecurityGroups:
-            - sg-0b20bff42187aa01e
+            - sg-0d3c4a1e0483d6cbb
 
   EcsExecRole:
     Type: AWS::IAM::Role
@@ -146,6 +153,91 @@ Resources:
             Principal:
               Service: ecs-tasks.amazonaws.com
             Action: 'sts:AssumeRole'
+ 
+  TGFE:
+      Type: AWS::ElasticLoadBalancingV2::TargetGroup
+      Properties:
+        HealthCheckIntervalSeconds: 6
+        HealthCheckPath: /
+        HealthCheckProtocol: HTTP
+        HealthCheckTimeoutSeconds: 5
+        HealthyThresholdCount: 2
+        TargetType: ip
+        Name: tgFrontEnd
+        Port: 3000
+        Protocol: HTTP
+        UnhealthyThresholdCount: 2
+        VpcId: vpc-08800efcf5192efa9
 
 
-            # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/quickref-ecs.html
+  TGNM:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 6
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Name: nodeAndMongo
+      Port: 5000
+      Protocol: HTTP
+      UnhealthyThresholdCount: 2
+      VpcId: vpc-08800efcf5192efa9
+        
+
+  FrontEndListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref  TGFE
+      LoadBalancerArn: !Ref BlogALB
+      Port: '3000'
+      Protocol: HTTP
+
+
+  NodeAndMongoListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref  TGNM
+      LoadBalancerArn: !Ref BlogALB
+      Port: '5000'
+      Protocol: HTTP
+
+  FrontEndRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties: 
+      Actions: 
+         - TargetGroupArn: !Ref TGFE
+           Type: 'forward'
+      Conditions: 
+        - Field: path-pattern
+          Values:
+            - '*'
+      ListenerArn: !Ref FrontEndListener
+      Priority: 1
+      
+  
+  BackendRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties: 
+      Actions: 
+          - TargetGroupArn: !Ref  TGNM
+            Type: 'forward'
+      Conditions: 
+        - Field: path-pattern
+          Values: 
+            - '*'
+      ListenerArn: !Ref  NodeAndMongoListener
+      Priority: 1
+
+
+
+
+
+              # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/quickref-ecs.html
+              # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-elasticloadbalancingv2-targetgroup.html#cfn-elasticloadbalancingv2-targetgroup-name
+              # https://stackoverflow.com/questions/53971873/the-target-group-does-not-have-an-associated-load-balancer
